@@ -19,8 +19,13 @@
     "svelte": "^3.55.0"
   },
   "dependencies": {
+    "@duckdb/duckdb-wasm": "^1.28.1-dev106.0",
+    "@mapbox/mapbox-gl-draw": "^1.4.3",
+    "@mapbox/mapbox-gl-draw-static-mode": "^1.0.1",
+    "@watergis/maplibre-gl-terradraw": "^0.1.1",
     "h3-js": "^4.1.0",
     "maplibre-gl": "^4.7.0",
-    "sirv-cli": "^2.0.0"
+    "sirv-cli": "^2.0.0",
+    "terra-draw": "^1.0.0-beta.1"
   }
 }
