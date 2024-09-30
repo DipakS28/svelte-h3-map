@@ -3,7 +3,14 @@
 	import maplibregl from "maplibre-gl";
 	import MapboxDraw from "@mapbox/mapbox-gl-draw";
 	import * as h3 from "h3-js";
-	import _ from 'lodash';
+	import _ from "lodash";
+	import { duckDbInstance } from '../duckdbInstanceStore.ts';
+
+	let dataDictionary;
+	let queryResult;
+	let loading = true;
+	let dlLink = null;
+
 
 	const geojsonUrl = `https://data.texas.gov/resource/m3yf-ffwm.geojson`;
 
@@ -17,7 +24,42 @@
 	let isDrawingRectangle = false;
 	let countyLayerLoaded = false;
 	let drawingEnabled = true;
-	let currentZoom = 6; 
+	let currentZoom = 6;
+
+
+	// const conn = duckDbInstance.connect().then(async (c) => {
+
+	// 	console.log("Hiiiiiiiiiii");
+
+	// 	const INSTALL_QUERY = await c?.query(
+	// 		'INSTALL spatial; LOAD spatial; INSTALL parquet; LOAD parquet;'
+	// 	);
+	// 	const DATA_DICT = await c?.query(
+	// 		"DESCRIBE SELECT * FROM 's3://txgio-copc-test/stratmap24-addresspoints_48.parquet' LIMIT 1;"
+	// 	);
+	// 	const PREVIEW_TABLE = await c?.query(
+	// 		`DROP TABLE IF EXISTS preview; CREATE TABLE preview AS SELECT * FROM 's3://txgio-copc-test/stratmap24-addresspoints_48.parquet' LIMIT 100;`
+	// 	);
+	// 	const PREVIEW_EXPORT = await c?.query(`COPY preview TO 'data_preview.csv' (FORMAT CSV);`);
+	// 	const PREVIEW_QUERY = await c?.query(`SELECT * FROM preview;`);
+
+	// 	queryResult = {
+	// 		rows: PREVIEW_QUERY.toArray().map((r) => r.toJSON()),
+	// 		fields: PREVIEW_QUERY.schema.fields
+	// 	};
+	// 	dataDictionary = {
+	// 		rows: DATA_DICT.toArray().map((r) => r.toJSON()),
+	// 		fields: DATA_DICT.schema.fields
+	// 	};
+
+	// 	const pqBuf = await $duckDbInstance.db.copyFileToBuffer('data_preview.csv');
+
+	// 	dlLink = URL.createObjectURL(new Blob([pqBuf]));
+	// 	loading = false;
+	// 	//test
+	// 	c?.close();
+	// 	await $duckDbInstance.db?.dropFile('data_preview.csv');
+	// });
 
 	onMount(async () => {
 		map = new maplibregl.Map({
@@ -26,11 +68,14 @@
 			center: [-99.9018, 31.9686],
 			zoom: currentZoom,
 		});
-		await loadCountyBoundaries();
+
+		map.on("load", async () => {
+			await loadCountyBoundaries();
+		});
 
 		map.on("zoom", () => {
 			currentZoom = map.getZoom();
-			console.log("Current zoom:", currentZoom);
+			// console.log("Current zoom:", currentZoom);
 		});
 
 		const NewSimpleSelect = _.extend(MapboxDraw.modes.simple_select, {
@@ -67,10 +112,9 @@
 		);
 		map.addControl(new maplibregl.NavigationControl());
 
-
 		map.on("draw.create", (e) => {
 			const feature = e.features[0];
-			console.log("Feature:", feature);
+			// console.log("Feature:", feature);
 
 			if (feature.geometry.type === "Polygon") {
 				polygonCoordinates = feature.geometry.coordinates[0];
@@ -82,8 +126,21 @@
 			}
 		});
 
+		map.on("draw.update", (e) => {
+			const feature = e.features[0];
+
+			if (feature.geometry.type === "Polygon") {
+				polygonCoordinates = feature.geometry.coordinates[0];
+				showFetchButton = true;
+				console.log(
+					"Updated Polygon coordinates captured:",
+					polygonCoordinates,
+				);
+			}
+		});
+
 		map.on("click", (e) => {
-			if (countyLayerLoaded) {
+			if (countyLayerLoaded && !drawingEnabled && !isDrawingRectangle) {
 				const features = map.queryRenderedFeatures(e.point, {
 					layers: ["county-boundaries-layer"],
 				});
@@ -115,22 +172,22 @@
 				source: "county-boundaries",
 				paint: {
 					"fill-color": "#888888",
-					"fill-opacity": 0.5,
+					"fill-opacity": 0.4,
 					"fill-outline-color": "#000000",
 				},
 			});
 
 			countyLayerLoaded = true;
 		} catch (error) {
-			console.error("Error loading county boundaries:", error);
+			console.error("Error :", error);
 		}
 	};
 
 	const getH3Resolution = (zoom) => {
 		if (zoom >= 10) {
-			return 7; 
+			return 7;
 		} else if (zoom >= 5) {
-			return 5; 
+			return 5;
 		} else {
 			return 3;
 		}
@@ -150,11 +207,16 @@
 
 		console.log("County Polygon Coordinates: ", formattedPolygon);
 
-		const h3Resolution = getH3Resolution(currentZoom); // Get resolution based on zoom
+		const h3Resolution = getH3Resolution(currentZoom);
 
 		h3Indices = h3.polygonToCells(formattedPolygon, h3Resolution);
 
-		console.log("H3 Indices for County at resolution", h3Resolution, ":", h3Indices);
+		console.log(
+			"H3 Indices for County at resolution",
+			h3Resolution,
+			":",
+			h3Indices,
+		);
 	};
 
 	const calculateH3Indices = () => {
@@ -171,9 +233,25 @@
 
 		console.log("Polygon Coordinates: ", formattedPolygon);
 
-		const h3Resolution = getH3Resolution(currentZoom); // Get resolution based on zoom
+		let h3Resolution = getH3Resolution(currentZoom);
 
 		h3Indices = h3.polygonToCells(formattedPolygon, h3Resolution);
+		// hex_com = h3.compact(h3Indices)
+		if (h3Indices.length == 0) {
+			currentZoom = Math.ceil(currentZoom);
+			if (currentZoom > 12) {
+				currentZoom = 12;
+			}
+			h3Indices = h3.polygonToCells(
+				formattedPolygon,
+				currentZoom,
+			);
+			console.log("H3 h3_7 at resolution 15", ":", h3Indices);
+			let cell = h3Indices[0];
+			console.log("cell", cell);
+			let h3_7 = h3.cellToParent(cell, 7);
+			console.log("H3 h3_7 at resolution", h3Resolution, ":", h3_7);
+		}
 
 		console.log("H3 Indices at resolution", h3Resolution, ":", h3Indices);
 	};
@@ -185,7 +263,7 @@
 		secondPoint = null;
 		showFetchButton = false;
 		isDrawingRectangle = false;
-		console.log("Cleared all polygons.");
+		// console.log("Cleared all polygons.");
 		draw.changeMode("draw_polygon");
 	};
 
@@ -197,12 +275,12 @@
 		map.once("click", (e) => {
 			if (!isDrawingRectangle) return;
 			firstPoint = [e.lngLat.lng, e.lngLat.lat];
-			console.log("First point:", firstPoint);
+			// console.log("First point:", firstPoint);
 
 			map.once("click", (e) => {
 				if (!isDrawingRectangle) return;
 				secondPoint = [e.lngLat.lng, e.lngLat.lat];
-				console.log("Second point:", secondPoint);
+				// console.log("Second point:", secondPoint);
 
 				if (firstPoint && secondPoint) {
 					const bounds = [
@@ -227,7 +305,7 @@
 
 					showFetchButton = true;
 
-					console.log("Rectangle created:", bounds);
+					// console.log("Rectangle created:", bounds);
 				}
 			});
 		});
@@ -237,10 +315,10 @@
 		drawingEnabled = !drawingEnabled;
 		if (drawingEnabled) {
 			draw.changeMode("draw_polygon");
-			console.log("Drawing enabled");
+			// console.log("Drawing enabled");
 		} else {
 			draw.changeMode("simple_select");
-			console.log("Drawing disabled");
+			// console.log("Drawing disabled");
 		}
 	};
 </script>
