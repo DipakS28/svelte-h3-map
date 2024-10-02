@@ -5,6 +5,9 @@ import terser from '@rollup/plugin-terser';
 import resolve from '@rollup/plugin-node-resolve';
 import livereload from 'rollup-plugin-livereload';
 import css from 'rollup-plugin-css-only';
+import typescript from '@rollup/plugin-typescript';
+import url from '@rollup/plugin-url'; // To handle ?url imports
+import wasm from '@rollup/plugin-wasm'; // To handle WASM files
 
 const production = !process.env.ROLLUP_WATCH;
 
@@ -59,6 +62,8 @@ export default {
 			exportConditions: ['svelte']
 		}),
 		commonjs(),
+		url(),  // Handle imports like `duckdb-wasm?url`
+		wasm(), // Load and process WebAssembly files
 
 		// In dev mode, call `npm run start` once
 		// the bundle has been generated
@@ -67,6 +72,7 @@ export default {
 		// Watch the `public` directory and refresh the
 		// browser on changes when not in production
 		!production && livereload('public'),
+		typescript({ sourceMap: !production }),
 
 		// If we're building for production (npm run build
 		// instead of npm run dev), minify

@@ -4,7 +4,8 @@
 	import MapboxDraw from "@mapbox/mapbox-gl-draw";
 	import * as h3 from "h3-js";
 	import _ from "lodash";
-	import { duckDbInstance } from '../duckdbInstanceStore.ts';
+    import { duckDbInstance } from "../duckdbInstanceStore";
+
 
 	let dataDictionary;
 	let queryResult;
@@ -25,6 +26,7 @@
 	let countyLayerLoaded = false;
 	let drawingEnabled = true;
 	let currentZoom = 6;
+
 
 
 	// const conn = duckDbInstance.connect().then(async (c) => {
